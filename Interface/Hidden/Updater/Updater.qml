@@ -15,7 +15,7 @@ Kit {
         updater_Show: true, updater_Icon: "f233", updater_IconSize: 0.022, updater_TextSize: 13,
         updater_Width: 0.26, updater_Height: 0.5, updater_Color: "#000000", updater_TextColor: "#ffffff", updater_AlertColor: "#ff3b3b", updater_HoverColor: "Active", updater_HoverTime: 1000, updater_Margin: 8,
         updater_FixWidth: 0.32, updater_ChangeColor: "#00ff00",
-        updater_Delay: 3000, updater_Interval: 0, updater_Ignored: []
+        updater_Delay: 3000, updater_Interval: 0, updater_Ignored: [], updater_Carry: ["kitty", "rofi", "hypr/hypridle.conf"], updater_SplashTheme: "custom", updater_SplashOnShutdown: false
     })
 
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("Check.sh").toString().replace(/^file:\/\//, ""))
@@ -103,10 +103,11 @@ Kit {
         }
     }
     Process { id: act; onExited: root.check() }
+    readonly property string confDir: Quickshell.env("XDG_CONFIG_HOME") || String(Quickshell.env("HOME") ?? "") + "/.config"
     Process {
         id: mirror
         running: true
-        command: ["sh", "-c", "grep -qsF \"$3\" \"$1\" && { [ ! -e \"$2\" ] || [ \"$1\" -nt \"$2\" ]; } && ! cmp -s \"$1\" \"$2\" && cp -f \"$1\" \"$2\"; true", "mirror", (Quickshell.env("XDG_CONFIG_HOME") || String(Quickshell.env("HOME") ?? "") + "/.config") + "/hypr/hyprland.lua", root.home + "/hyprland.lua", root.home.replace(/^.*\//, "") + "/Dolphin.qml"]
+        command: ["sh", "-c", "keep() {\n[ -e \"$1\" ] || return 0\nif [ -e \"$2\" ]; then\ndiff -rq \"$1\" \"$2\" >/dev/null 2>&1 && return 0\nr=$(find \"$2\" -type f -printf '%T@ %p\\n' | sort -n | tail -n 1 | cut -d' ' -f2-)\n[ -n \"$r\" ] && [ -z \"$(find \"$1\" -type f -newer \"$r\" -print -quit)\" ] && return 0\nfi\nmkdir -p \"$(dirname \"$2\")\" && cp -rT \"$1\" \"$2\"\n}\ngrep -qsF \"$3\" \"$1\" && { [ ! -e \"$2\" ] || [ \"$1\" -nt \"$2\" ]; } && ! cmp -s \"$1\" \"$2\" && cp -f \"$1\" \"$2\"\nc=\"$4\"\no=\"$5\"\ncase \"$6\" in \"\"|*/*|*..*) ;; *) keep \"/usr/share/plymouth/themes/$6\" \"$7/$6\" ;; esac\nshift 7\nfor n do\ncase \"$n\" in \"\"|/*|*..*) continue ;; esac\nkeep \"$c/$n\" \"$o/$n\"\ndone\ntrue", "mirror", root.confDir + "/hypr/hyprland.lua", root.home + "/hyprland.lua", root.home.replace(/^.*\//, "") + "/Dolphin.qml", root.confDir, root.home + "/config", String(root.s("updater_SplashTheme") ?? ""), root.home + "/system/plymouth"].concat((root.s("updater_Carry") ?? []).map(n => String(n)))
     }
     Connections {
         target: Hyprland

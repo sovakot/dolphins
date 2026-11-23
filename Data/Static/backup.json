@@ -50,6 +50,9 @@
     "updater_Delay" : 3000,
     "updater_Interval" : 0,
     "updater_Ignored" : [],
+    "updater_Carry" : ["kitty", "rofi", "hypr/hypridle.conf"],
+    "updater_SplashTheme" : "custom",
+    "updater_SplashOnShutdown" : false,
 
     "ai_Show" : true,
     "ai_Title" : "AI Model (Local)",

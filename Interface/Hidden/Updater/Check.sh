@@ -241,6 +241,21 @@ else
     fi
 fi
 
+conf="${XDG_CONFIG_HOME:-$HOME/.config}"
+if have jq; then
+    { [ -n "$J" ] && printf '%s' "$J" | jq -e 'has("updater_Carry")' >/dev/null 2>&1 && printf '%s' "$J" || printf '%s' "$B"; } | jq -r '(.updater_Carry // [])[] | strings' 2>/dev/null | while IFS= read -r n; do
+        case "$n" in ""|/*|*..*) continue ;; esac
+        o="$root/config/$n"
+        l="$conf/$n"
+        [ -e "$o" ] || continue
+        if [ ! -e "$l" ]; then
+            out "carry-$n" "Your $n settings are not on this computer" "Dolphin carries a copy of $l in $o, and this computer has none yet, so $n starts with its defaults." "Copies $o to $l." "Changes Settings" "mkdir -p '$(dirname "$l")' && cp -rT '$o' '$l'"
+        elif ! diff -rq "$o" "$l" >/dev/null 2>&1; then
+            r=$(find "$l" -type f -printf '%T@ %p\n' | sort -n | tail -n 1 | cut -d' ' -f2-)
+            [ -n "$r" ] && [ -n "$(find "$o" -type f -newer "$r" -print -quit)" ] && out "carry-new-$n" "The $n settings in Dolphin are newer than the ones in use" "$o was changed after $l, for example by an update from another computer, so those changes are not active here yet." "Copies $o over $l. What is there now is kept as $l.bak." "Changes Settings" "cp -rT '$l' '$l.bak' && cp -rT '$o' '$l'"
+        fi
+    done
+fi
 listed() {
     [ -s "$1" ] && have pacman || return 0
     gone=$(grep -vE '^[[:space:]]*(#|$)' "$1" | awk '{print $1}' | sort -u | pacman -T - 2>/dev/null)
@@ -433,6 +448,40 @@ if on lockscreen_Show; then
     fi
 fi
 
+boot="$root/Interface/Hidden/Updater/Boot.sh"
+st=$(val updater_SplashTheme custom)
+case "$st" in ""|*/*|*..*) st="" ;; esac
+sp="$root/system/plymouth/$st"
+if [ -n "$st" ] && [ -d "$sp" ]; then
+    if ! have plymouth; then
+        need plymouth plymouth "The picture shown while the computer starts is drawn by Plymouth."
+    else
+        if ! diff -rq "$sp" "/usr/share/plymouth/themes/$st" >/dev/null 2>&1 || ! grep -qs "^Theme=$st\$" /etc/plymouth/plymouthd.conf; then
+            out splash-theme "The start-up picture is not Dolphin's" "Dolphin carries its start-up picture (the Plymouth theme $st) in $sp. This computer shows a different one, or none." "Copies $sp to /usr/share/plymouth/themes/$st, makes it the active theme and rebuilds the start-up image. It asks for your password and shows from the next start." "Changes System" "pkexec sh '$boot' theme '$sp' '$st'"
+        fi
+        if [ -f /etc/mkinitcpio.conf ] && ! grep -qE '^HOOKS=.*\bplymouth\b' /etc/mkinitcpio.conf; then
+            out splash-hook "The start-up picture is not loaded early" "Plymouth is installed but is not part of the start-up image, so the screen shows text instead of the picture." "Adds plymouth to the HOOKS line of /etc/mkinitcpio.conf (the old file is kept as mkinitcpio.conf.bak) and rebuilds the start-up image. It asks for your password and shows from the next start." "Changes System" "pkexec sh '$boot' hook"
+        fi
+        if [ "$(val updater_SplashOnShutdown false)" != true ] && have systemctl; then
+            loud=""
+            for u in plymouth-halt plymouth-kexec plymouth-poweroff plymouth-reboot; do
+                [ "$(systemctl is-enabled "$u.service" 2>/dev/null)" = masked ] || loud=1
+            done
+            [ -n "$loud" ] && out splash-hush "The start-up picture also shows when shutting down" "Dolphin's setup keeps the screen black while the computer shuts down or restarts. On this computer Plymouth still draws its picture then." "Masks the four Plymouth services for shutting down and restarting (halt, kexec, poweroff, reboot), so the picture only shows while starting. It asks for your password. Set updater_SplashOnShutdown to true to keep the picture instead." "Changes System" "pkexec sh '$boot' hush"
+        fi
+        if ! grep -qE '(^| )splash( |$)' /proc/cmdline 2>/dev/null; then
+            out splash-cmdline "The start-up picture is switched off" "The kernel was started without the word splash, so Plymouth stays hidden and the start-up text shows instead." "Adds quiet and splash to the kernel line of the boot loader (systemd-boot, a unified kernel image or GRUB; the old file is kept with .bak at the end). It asks for your password and shows from the next start." "Changes System" "pkexec sh '$boot' splash"
+        fi
+    fi
+fi
+if [ -f "$root/Interface/Greeter/Greeter.qml" ] && ! grep -qs "Greeter.qml" /etc/greetd/config.toml; then
+    if ! have greetd || ! have cage; then
+        if [ -n "$can" ]; then out greeter-pkg "The login screen needs greetd and cage" "Dolphin's login screen is started by greetd inside cage, and they are not installed, so this computer shows a different login screen." "Runs: pkexec pacman -S --needed greetd cage\nIt asks for your password, then downloads and installs them." "Installs Programs" "pkexec pacman -S --noconfirm --needed greetd cage"
+        else out greeter-pkg "The login screen needs greetd and cage" "Dolphin's login screen is started by greetd inside cage, and they are not installed, so this computer shows a different login screen." "1. Open a terminal.\n2. Install greetd and cage with this computer's package manager." "" ""; fi
+    else
+        out greeter-setup "Dolphin's login screen is not set up" "This computer starts with a different login screen, or with none." "Writes /etc/greetd/config.toml so that greetd starts $root/Interface/Greeter/Greeter.qml (the old file is kept as config.toml.bak), switches off other login screens (sddm, ly, gdm, lightdm) and switches greetd on. It asks for your password and shows from the next start. If the login screen ever stays black, press Ctrl+Alt+F2 to log in on a text screen." "Changes System" "pkexec sh '$boot' greeter '$root'"
+    fi
+fi
 g=/etc/greetd/config.toml
 if grep -qs "Greeter.qml" "$g"; then
     gp=$(grep -oE '[^ "=]*/Interface/Greeter/Greeter\.qml' "$g" | head -n 1)
