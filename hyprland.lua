@@ -318,7 +318,7 @@ hl.bind(mainMod .. " + B", hl.dsp.global("brightnessbar:show"))
 hl.bind(mainMod .. " + N", hl.dsp.global("soundbar:show"))
 hl.bind(mainMod .. " + H", hl.dsp.global("media:toggle"))
 hl.bind(mainMod .. " + G", hl.dsp.global("wallpaper:next"), { repeating = true })
-hl.bind(mainMod .. " + comma", hl.dsp.exec_cmd([[for p in $(pgrep -x mpv); do grep -qa lan /proc/$p/cmdline && kill $p; done; mpv --window-maximized=yes "$HOME/Videos/How to Date a Russian Girl？! (Zima) [9wlypZ0yr1w].mp4"]]))
+hl.bind(mainMod .. " + comma", hl.dsp.exec_cmd([[for p in $(pgrep -x mpv); do grep -qa lan /proc/$p/cmdline && kill $p; done; mpv --window-maximized=yes "$HOME/Dolphin/Data/Static/Videos/zima.mp4"]]))
 hl.bind(mainMod .. " + period", hl.dsp.exec_cmd("pkill -INT -f 'Downloads/rec-[0-9]' || ffmpeg -f pulse -i @DEFAULT_MONITOR@ -c:a libmp3lame -q:a 2 ~/Downloads/rec-$(date +%F_%H-%M-%S).mp3"))
 hl.bind("Print", hl.dsp.global("snip:toggle"))
 
