@@ -7,8 +7,10 @@ hypr="${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
 tty=""
 [ -t 1 ] && tty=1
 out() {
+    _c="$6"
+    case "$_c" in "pkexec "*) [ -n "$agent" ] || _c="term:sudo ${_c#pkexec }" ;; esac
     if [ -n "$tty" ]; then printf '\n! %s\n' "$2"; printf '%s\n%s\n' "$3" "$4" | sed 's/\\n/\n    /g; s/^/    /'
-    else printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$6"; fi
+    else printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" "$_c"; fi
 }
 have() { command -v "$1" >/dev/null 2>&1; }
 path() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s' "$HOME/${1#"~/"}" ;; esac; }
@@ -20,6 +22,21 @@ have qs && q=qs
 can=""
 have pacman && have pkexec && can=1
 me=$(id -un)
+agent=""
+have pkexec && pgrep -f 'polkit.*agent|polkit-kde|hyprpolkitagent|lxpolkit|polkit-gnome' >/dev/null 2>&1 && agent=1
+ins="$root/Install.sh"
+repo=""
+have pacman && repo=$(pacman -Slq 2>/dev/null)
+inrepo() { for _p in $1; do printf '%s\n' "$repo" | grep -qxF "$_p" || return 1; done; }
+get() {
+    have pacman || return 0
+    if inrepo "$1"; then printf 'pkexec pacman -S --noconfirm --needed %s' "$1"
+    else printf "term:sh '%s' get %s" "$ins" "$1"; fi
+}
+pic() { find "$1" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) ! -iname "${2:-.}" 2>/dev/null | sort | head -n 1; }
+short() { case "$1" in "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "$1" ;; esac; }
+llama="llama.cpp-vulkan-git"
+inrepo "llama-cpp llama-cpp-vulkan" && [ -n "$repo" ] && llama="llama-cpp llama-cpp-vulkan"
 cr=$(printf '\r')
 restore="1. Extract the latest Dolphin archive into $root again. That puts the original file back.\n2. Reload Dolphin."
 
@@ -48,17 +65,19 @@ val() {
 on() { [ "$(val "$1" true)" != false ]; }
 need() {
     have "$1" && return 0
-    if [ -n "$can" ] && [ -n "$2" ]; then out "pkg-$1" "$1 is not installed" "$3" "Runs: pkexec pacman -S --needed $2\nIt asks for your password, then downloads and installs $2." "Installs Programs" "pkexec pacman -S --noconfirm --needed $2"
+    _g=""
+    [ -n "$2" ] && _g=$(get "$2")
+    if [ -n "$_g" ]; then out "pkg-$1" "$1 is not installed" "$3" "Installs $2. It asks for your password, then downloads and installs it." "Installs Programs" "$_g"
     else out "pkg-$1" "$1 is not installed" "$3" "1. Open a terminal.\n2. Install ${2:-$1} with this computer's package manager.\n3. Reload Dolphin." "" ""; fi
     return 1
 }
 aur() {
     have "$1" && return 0
-    out "pkg-$1" "$1 is not installed" "$2" "1. Open a terminal.\n2. Run: yay -S $1\n3. Reload Dolphin." "" ""
+    out "pkg-$1" "$1 is not installed" "$2" "Installs $1. If it is not in the normal package list it is built from the AUR with yay, in a terminal that asks for your password." "Installs Programs" "$(get "$1")"
 }
 hide() { out "$1" "$2" "$3" "Sets $4 to false in config.json, which hides the widget. Set it back to true to show it again." "Changes Settings" "set:$4=false"; }
 
-[ -n "$q" ] || out pkg-quickshell "Quickshell is not installed" "Dolphin is drawn by Quickshell. Without it nothing can start." "1. Open a terminal.\n2. Run: sudo pacman -S --needed quickshell\n3. Start Dolphin: qs -p $root/Dolphin.qml" "" ""
+[ -n "$q" ] || out pkg-quickshell "Quickshell is not installed" "Dolphin is drawn by Quickshell. Without it nothing can start." "1. Open a terminal.\n2. Run: sudo pacman -S --needed quickshell\n3. Start Dolphin: qs -p $root/Dolphin.qml" "Installs Programs" "$(get quickshell)"
 for d in /usr/lib/qt6/qml /usr/lib64/qt6/qml /usr/lib/x86_64-linux-gnu/qt6/qml; do
     [ -d "$d/QtQuick" ] || continue
     if [ ! -d "$d/QtMultimedia" ]; then
@@ -101,7 +120,7 @@ if [ -n "$J" ] && [ -n "$B" ]; then
 fi
 
 if [ -d "$root/Data/Dynamic" ] && [ ! -w "$root/Data/Dynamic" ]; then
-    out files-locked "Dolphin cannot save settings" "The folder $root/Data/Dynamic cannot be written to, so toggles, pinned apps and scores are lost as soon as they change." "1. Open a terminal.\n2. Run: sudo chown -R $me: $root\n3. If the folder is on a read-only drive, copy Dolphin into your home folder instead." "" ""
+    out files-locked "Dolphin cannot save settings" "The folder $root/Data/Dynamic cannot be written to, so toggles, pinned apps and scores are lost as soon as they change." "1. Open a terminal.\n2. Run: sudo chown -R $me: $root\n3. If the folder is on a read-only drive, copy Dolphin into your home folder instead." "Changes System" "pkexec chown -R $me: '$root'"
 fi
 o=$(find "$root" ! -user "$me" -print -quit 2>/dev/null)
 if [ -n "$o" ]; then
@@ -258,21 +277,21 @@ if have jq; then
 fi
 listed() {
     [ -s "$1" ] && have pacman || return 0
-    gone=$(grep -vE '^[[:space:]]*(#|$)' "$1" | awk '{print $1}' | sort -u | pacman -T - 2>/dev/null)
+    gone=$(grep -vE '^[[:space:]]*(#|$)' "$1" | awk '$1 !~ /-debug$/ {print $1}' | sort -u | pacman -T - 2>/dev/null)
     [ -n "$gone" ] || return 0
-    split=$({ pacman -Slq 2>/dev/null; echo ---; printf '%s\n' "$gone"; } | awk '/^---$/ { s = 1; next } !s { r[$0] = 1; next } NF { print (($0 in r) ? "E " : "H ") $0 }')
+    split=$({ printf '%s\n' "$repo"; echo ---; printf '%s\n' "$gone"; } | awk '/^---$/ { s = 1; next } !s { r[$0] = 1; next } NF { print (($0 in r) ? "E " : "H ") $0 }')
     easy=$(printf '%s\n' "$split" | sed -n 's/^E //p')
     hard=$(printf '%s\n' "$split" | sed -n 's/^H //p')
     if [ -n "$easy" ]; then
         n=$(printf '%s\n' "$easy" | wc -l)
         e=$(printf '%s' "$easy" | tr '\n' ' ')
-        if [ -n "$can" ]; then out "$2" "$3 are not installed ($n)" "$1 $4 Missing here: $e" "Runs: pkexec pacman -S --needed $e\nIt asks for your password, then downloads and installs them." "Installs Programs" "pkexec pacman -S --noconfirm --needed $e"
+        if have pacman; then out "$2" "$3 are not installed ($n)" "$1 $4 Missing here: $e" "Runs: pkexec pacman -S --needed $e\nIt asks for your password, then downloads and installs them." "Installs Programs" "pkexec pacman -S --noconfirm --needed $e"
         else out "$2" "$3 are not installed ($n)" "$1 $4 Missing here: $e" "1. Open a terminal.\n2. Install them with this computer's package manager." "" ""; fi
     fi
     if [ -n "$hard" ]; then
         n=$(printf '%s\n' "$hard" | wc -l)
         e=$(printf '%s' "$hard" | tr '\n' ' ')
-        out "$2-aur" "$3 from the AUR are not installed ($n)" "They are not in the normal package list, so they are built with yay. Missing here: $e" "1. Open a terminal.\n2. Run: yay -S --needed $e\n3. Reload Dolphin." "" ""
+        out "$2-aur" "$3 from the AUR are not installed ($n)" "They are not in the normal package list, so they are built with yay. Missing here: $e" "Opens a terminal, installs yay if it is missing, then builds and installs them. It asks for your password." "Installs Programs" "term:sh '$ins' get $e"
     fi
 }
 listed "$root/packages.txt" pkg-list "Programs from packages.txt" "lists the programs this Dolphin setup uses."
@@ -281,9 +300,9 @@ have jq || need jq jq "Dolphin uses jq to read colours from the wallpaper and to
 need curl curl "The weather and location widgets download their data with curl."
 need notify-send libnotify "Dolphin sends its own messages (for example after an uninstall) with notify-send."
 need fc-list fontconfig "Fonts are looked up with fontconfig."
-have pkexec || out pkg-pkexec "pkexec is not installed" "Fixes that install programs or change the system ask for your password through polkit. Without it they cannot run." "1. Open a terminal.\n2. Run: sudo pacman -S --needed polkit\n3. Reload Dolphin." "" ""
+have pkexec || out pkg-pkexec "pkexec is not installed" "Fixes that install programs or change the system ask for your password through polkit. Without it they cannot run." "1. Open a terminal.\n2. Run: sudo pacman -S --needed polkit\n3. Reload Dolphin." "Installs Programs" "term:sudo pacman -S --needed polkit"
 if have pkexec && ! pgrep -f 'polkit.*agent|polkit-kde|hyprpolkitagent|lxpolkit|polkit-gnome' >/dev/null 2>&1; then
-    out polkit "No password prompt is running" "A polkit agent shows the password window for fixes that install programs or change the system. None is running, so those fixes will fail." "1. Open a terminal.\n2. Run: sudo pacman -S --needed hyprpolkitagent\n3. Run: systemctl --user enable --now hyprpolkitagent\n4. Press Check again." "" ""
+    out polkit "No password prompt is running" "A polkit agent shows the password window for fixes that install programs or change the system. None is running, so those fixes will fail." "1. Open a terminal.\n2. Run: sudo pacman -S --needed hyprpolkitagent\n3. Run: systemctl --user enable --now hyprpolkitagent\n4. Press Check again." "Installs Programs" "term:sh '$ins' get hyprpolkitagent; [ -z \"\$WAYLAND_DISPLAY\" ] || setsid -f /usr/lib/hyprpolkitagent/hyprpolkitagent >/dev/null 2>&1"
 fi
 
 gpu=""
@@ -295,7 +314,7 @@ for c in /sys/class/drm/card[0-9]; do
     if [ "$v" = 0x10de ]; then
         if [ "$d" = nvidia ] && [ -r /sys/module/nvidia_drm/parameters/modeset ]; then
             read -r m < /sys/module/nvidia_drm/parameters/modeset
-            [ "$m" = N ] && { gpu=1; out gpu-modeset "The NVIDIA driver is not in Wayland mode" "The driver is installed, but its modeset option is off. Hyprland needs it on, otherwise the screen stays black, flickers or runs without acceleration." "1. Open a terminal.\n2. Run: echo 'options nvidia_drm modeset=1' | sudo tee /etc/modprobe.d/nvidia.conf\n3. Run: sudo mkinitcpio -P\n4. Restart the computer." "" ""; }
+            [ "$m" = N ] && { gpu=1; out gpu-modeset "The NVIDIA driver is not in Wayland mode" "The driver is installed, but its modeset option is off. Hyprland needs it on, otherwise the screen stays black, flickers or runs without acceleration." "1. Open a terminal.\n2. Run: echo 'options nvidia_drm modeset=1' | sudo tee /etc/modprobe.d/nvidia.conf\n3. Run: sudo mkinitcpio -P\n4. Restart the computer." "Changes System" "pkexec sh -c \"echo 'options nvidia_drm modeset=1' > /etc/modprobe.d/nvidia.conf && mkinitcpio -P\""; }
         fi
         [ -n "$d" ] && [ "$d" != nouveau ] && continue
         gpu=1
@@ -310,19 +329,19 @@ for c in /sys/class/drm/card[0-9]; do
             [ -r "/usr/lib/modules/$(uname -r)/pkgbase" ] && read -r base < "/usr/lib/modules/$(uname -r)/pkgbase"
             pk="nvidia-open nvidia-utils"
             [ "$base" = linux ] || pk="nvidia-open-dkms nvidia-utils${base:+ $base-headers}"
-            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is new enough for NVIDIA's current driver." "1. Open a terminal.\n2. Run: sudo pacman -S --needed $pk\n3. Restart the computer." "" ""
+            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is new enough for NVIDIA's current driver." "1. Open a terminal.\n2. Run: sudo pacman -S --needed $pk\n3. Restart the computer." "Installs Programs" "$(get "$pk")"
         elif have yay; then
-            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is too old for NVIDIA's current driver and needs the 580 series from the AUR." "1. Open a terminal.\n2. Run: yay -S nvidia-580xx-dkms nvidia-580xx-utils\n3. Restart the computer." "" ""
+            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is too old for NVIDIA's current driver and needs the 580 series from the AUR." "1. Open a terminal.\n2. Run: yay -S nvidia-580xx-dkms nvidia-580xx-utils\n3. Restart the computer." "Installs Programs" "term:sh '$ins' get nvidia-580xx-dkms nvidia-580xx-utils"
         else
-            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is too old for NVIDIA's current driver and needs the 580 series from the AUR." "1. Open a terminal.\n2. Install an AUR helper such as yay.\n3. Run: yay -S nvidia-580xx-dkms nvidia-580xx-utils\n4. Restart the computer." "" ""
+            out "gpu-${c##*/}" "Graphics driver missing: $name" "$state. This card is too old for NVIDIA's current driver and needs the 580 series from the AUR." "1. Open a terminal.\n2. Install an AUR helper such as yay.\n3. Run: yay -S nvidia-580xx-dkms nvidia-580xx-utils\n4. Restart the computer." "Installs Programs" "term:sh '$ins' get nvidia-580xx-dkms nvidia-580xx-utils"
         fi
         continue
     fi
     case "$v" in 0x1002) n="AMD" ;; 0x8086) n="Intel" ;; *) n="unknown" ;; esac
     [ -n "$d" ] || gpu=1
-    [ -n "$d" ] || out "gpu-${c##*/}" "No driver is loaded for the $n graphics card" "The system is not using this graphics card, so the desktop will be slow or may not start. AMD and Intel cards are driven by the kernel together with the mesa package." "1. Open a terminal.\n2. Run: sudo pacman -S --needed mesa linux-firmware\n3. Restart the computer.\n4. If this is still listed, the kernel is too old for the card. Run: sudo pacman -Syu and restart again." "" ""
+    [ -n "$d" ] || out "gpu-${c##*/}" "No driver is loaded for the $n graphics card" "The system is not using this graphics card, so the desktop will be slow or may not start. AMD and Intel cards are driven by the kernel together with the mesa package." "1. Open a terminal.\n2. Run: sudo pacman -S --needed mesa linux-firmware\n3. Restart the computer.\n4. If this is still listed, the kernel is too old for the card. Run: sudo pacman -Syu and restart again." "Installs Programs" "$(get "mesa linux-firmware")"
     if have pacman && ! pacman -Qq mesa >/dev/null 2>&1; then
-        out gpu-mesa "The mesa graphics library is missing" "AMD and Intel graphics need mesa for the desktop to be drawn by the graphics card." "1. Open a terminal.\n2. Run: sudo pacman -S --needed mesa\n3. Restart the computer." "" ""
+        out gpu-mesa "The mesa graphics library is missing" "AMD and Intel graphics need mesa for the desktop to be drawn by the graphics card." "1. Open a terminal.\n2. Run: sudo pacman -S --needed mesa\n3. Restart the computer." "Installs Programs" "$(get mesa)"
     fi
 done
 set -- /dev/dri/renderD*
@@ -340,7 +359,7 @@ if need wpctl wireplumber "Volume keys, the sound widget and the sound bar use w
     if wpctl status >/dev/null 2>&1; then
         sink=$(wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null)
         case "$sink" in ""|*auto_null*|*"Dummy Output"*) sleep 2; sink=$(wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null) ;; esac
-        case "$sink" in ""|*auto_null*|*"Dummy Output"*) out audio-none "No speakers or headphones found" "The sound server is running but has no real output to play through. On a new laptop this usually means the sound card's firmware is not installed." "1. Open a terminal.\n2. Run: sudo pacman -S --needed sof-firmware alsa-firmware\n3. Restart the computer.\n4. If it is still listed, check that the output is not disabled: wpctl status" "" "" ;; esac
+        case "$sink" in ""|*auto_null*|*"Dummy Output"*) out audio-none "No speakers or headphones found" "The sound server is running but has no real output to play through. On a new laptop this usually means the sound card's firmware is not installed." "1. Open a terminal.\n2. Run: sudo pacman -S --needed sof-firmware alsa-firmware\n3. Restart the computer.\n4. If it is still listed, check that the output is not disabled: wpctl status" "Installs Programs" "$(get "sof-firmware alsa-firmware")" ;; esac
     fi
     wpctl status >/dev/null 2>&1 || out audio "The sound server is not running" "PipeWire or WirePlumber is not running, so volume controls and the sound widget do nothing." "Runs: systemctl --user enable --now pipewire pipewire-pulse wireplumber\nStarts the sound services now and at every login. No password is needed." "Changes System" "systemctl --user enable --now pipewire pipewire-pulse wireplumber"
 fi
@@ -392,7 +411,7 @@ if on widget_NetworkShow; then
         else hide wifi-none "No Wi-Fi device found" "This computer has no Wi-Fi card the system can see, so the network widget and Wi-Fi panel cannot work. A missing Wi-Fi driver also looks like this." widget_NetworkShow; fi
     fi
     if need iwctl iwd "The Wi-Fi panel lists and joins networks through iwd."; then
-        systemctl is-active --quiet iwd 2>/dev/null || out wifi-iwd "The iwd service is not running" "The Wi-Fi panel talks to iwd. If this computer connects with NetworkManager instead, the panel cannot list or join networks." "1. Open a terminal.\n2. If this computer should use iwd, run: sudo systemctl enable --now iwd\n3. If it uses NetworkManager, leave iwd off and press Ignore, or set widget_NetworkShow to false in config.json." "" ""
+        systemctl is-active --quiet iwd 2>/dev/null || out wifi-iwd "The iwd service is not running" "The Wi-Fi panel talks to iwd. If this computer connects with NetworkManager instead, the panel cannot list or join networks." "1. Open a terminal.\n2. If this computer should use iwd, run: sudo systemctl enable --now iwd\n3. If it uses NetworkManager, leave iwd off and press Ignore, or set widget_NetworkShow to false in config.json." "Changes System" "pkexec systemctl enable --now iwd"
     fi
 fi
 
@@ -415,9 +434,13 @@ if on snip_Show; then
 fi
 on widget_NightShow && need hyprsunset hyprsunset "Night light changes the screen colour with hyprsunset."
 
+np=$(pic "$root/Data/Static/Images/Wallpaper")
+lp=$(pic "$root/Data/Static/Images/Lockscreen" 'avatar*')
+lp=${lp:-$np}
+ap=$(find "$root/Data/Static/Images/Lockscreen" -maxdepth 1 -type f -iname 'avatar*' 2>/dev/null | head -n 1)
 b=$(val dolphin_Background "")
 if [ -n "$b" ] && [ "$b" != true ] && [ "$b" != false ]; then
-    [ -f "$(path "$b")" ] || out file-background "The wallpaper file is missing" "dolphin_Background points to $b, which does not exist, so the background stays black." "1. Put the picture back at $b, or\n2. Open $cfg and set dolphin_Background to a picture that exists." "" ""
+    [ -f "$(path "$b")" ] || out file-background "The wallpaper file is missing" "dolphin_Background points to $b, which does not exist, so the background stays black." "${np:+Sets dolphin_Background to $np\n}1. Put the picture back at $b, or\n2. Open $cfg and set dolphin_Background to a picture that exists." "${np:+Changes Settings}" "${np:+set:dolphin_Background=$(short "$np")}"
     aur awww "Dolphin sets the wallpaper with awww."
     if [ "$(val dolphin_ThemeBackground false)" = true ]; then
         aur matugen "Colours from the wallpaper are picked with matugen."
@@ -426,9 +449,9 @@ if [ -n "$b" ] && [ "$b" != true ] && [ "$b" != false ]; then
     fi
 fi
 l=$(val dolphin_Lockscreen "")
-[ -n "$l" ] && [ ! -f "$(path "$l")" ] && out file-lockscreen "The lock screen picture is missing" "dolphin_Lockscreen points to $l, which does not exist, so the lock and login screens show a black background." "1. Put the picture back at $l, or\n2. Open $cfg and set dolphin_Lockscreen to a picture that exists." "" ""
+[ -n "$l" ] && [ ! -f "$(path "$l")" ] && out file-lockscreen "The lock screen picture is missing" "dolphin_Lockscreen points to $l, which does not exist, so the lock and login screens show a black background." "${lp:+Sets dolphin_Lockscreen to $lp\n}1. Put the picture back at $l, or\n2. Open $cfg and set dolphin_Lockscreen to a picture that exists." "${lp:+Changes Settings}" "${lp:+set:dolphin_Lockscreen=$(short "$lp")}"
 a=$(val greeter_Avatar "~/Dolphin/Data/Static/Images/Lockscreen/avatar.png")
-[ -f "$(path "$a")" ] || out file-avatar "The login picture is missing" "greeter_Avatar points to $a, which does not exist, so the login screen shows an empty circle." "1. Put a square picture at $a, or\n2. Open $cfg and set greeter_Avatar to a picture that exists." "" ""
+[ -f "$(path "$a")" ] || out file-avatar "The login picture is missing" "greeter_Avatar points to $a, which does not exist, so the login screen shows an empty circle." "${ap:+Sets greeter_Avatar to $ap\n}1. Put a square picture at $a, or\n2. Open $cfg and set greeter_Avatar to a picture that exists." "${ap:+Changes Settings}" "${ap:+set:greeter_Avatar=$(short "$ap")}"
 
 if on lockscreen_Show; then
     p=$(val lockscreen_Pam dolphin-lock)
@@ -440,8 +463,10 @@ fi
 
 if on lockscreen_Show; then
     if need hypridle hypridle "hypridle locks the screen when the lid closes or the computer sleeps."; then
+        ic=""
+        [ -e "$hypr/hypridle.conf" ] || ic="mkdir -p '$hypr' && printf 'general {\\n    lock_cmd = qs -p $root/Dolphin.qml ipc call lockscreen lock\\n    before_sleep_cmd = loginctl lock-session\\n}\\n' > '$hypr/hypridle.conf'"
         if ! grep -qs "lockscreen" "$hypr/hypridle.conf"; then
-            out idle-lock "Closing the lid does not lock the screen" "hypridle is not set up to call Dolphin's lock screen, so the computer wakes up unlocked or shows a different lock screen." "1. Open $hypr/hypridle.conf in an editor (create it if it is not there).\n2. Inside the general { } block set:\nlock_cmd = qs -p $root/Dolphin.qml ipc call lockscreen lock\nbefore_sleep_cmd = loginctl lock-session\n3. Save, then log out and back in." "" ""
+            out idle-lock "Closing the lid does not lock the screen" "hypridle is not set up to call Dolphin's lock screen, so the computer wakes up unlocked or shows a different lock screen." "1. Open $hypr/hypridle.conf in an editor (create it if it is not there).\n2. Inside the general { } block set:\nlock_cmd = qs -p $root/Dolphin.qml ipc call lockscreen lock\nbefore_sleep_cmd = loginctl lock-session\n3. Save, then log out and back in." "${ic:+Changes Settings}" "$ic"
         elif ! pgrep -x hypridle >/dev/null 2>&1; then
             out idle-off "hypridle is not running" "Nothing is watching for the lid closing or the computer going to sleep, so the screen does not lock by itself." "Starts hypridle now. To have it start at every login, it also needs a line in the part of hyprland.lua that starts programs." "Changes System" "setsid -f hypridle >/dev/null 2>&1"
         fi
@@ -486,7 +511,7 @@ g=/etc/greetd/config.toml
 if grep -qs "Greeter.qml" "$g"; then
     gp=$(grep -oE '[^ "=]*/Interface/Greeter/Greeter\.qml' "$g" | head -n 1)
     if [ -n "$gp" ] && [ ! -f "$gp" ]; then
-        out greeter-path "The login screen points to a file that is not there" "$g starts $gp, which does not exist on this computer, so the login screen stays black." "1. Open a terminal.\n2. Run: sudo nvim $g\n3. Change the path to: $root/Interface/Greeter/Greeter.qml\n4. Save and restart the computer." "" ""
+        out greeter-path "The login screen points to a file that is not there" "$g starts $gp, which does not exist on this computer, so the login screen stays black." "1. Open a terminal.\n2. Run: sudo nvim $g\n3. Change the path to: $root/Interface/Greeter/Greeter.qml\n4. Save and restart the computer." "Changes System" "pkexec sed -i 's|$gp|$root/Interface/Greeter/Greeter.qml|' '$g'"
     fi
     grep -qs cage "$g" && need cage cage "The login screen is shown inside cage."
     if id greeter >/dev/null 2>&1 && have getfacl; then
@@ -510,11 +535,15 @@ if have fc-list; then
         out font-folder "This computer does not look in Dolphin's font folder" "Dolphin keeps its fonts in Data/Static/Fonts, but the system has not been told about that folder, so \"$t\" and the icons are not found." "Runs:\nmkdir -p ~/.local/share/fonts\nln -sfn $root/Data/Static/Fonts ~/.local/share/fonts/Dolphin\nfc-cache -f\nThat adds a link to Dolphin's fonts in your own font folder and refreshes the font list. No password is needed. Reload Dolphin afterwards." "Changes System" "mkdir -p \"\$HOME/.local/share/fonts\" && ln -sfn '$root/Data/Static/Fonts' \"\$HOME/.local/share/fonts/Dolphin\" && fc-cache -f"
         t=""
     fi
-    [ -z "$t" ] || printf '%s\n' "$fams" | grep -qiF "$t" || out font-text "The font \"$t\" is not installed" "Text falls back to a different font, so sizes and spacing will look wrong." "1. Copy the font files into $root/Data/Static/Fonts\n2. Open a terminal and run: fc-cache -f\n3. Reload Dolphin.\nOr set dolphin_TextFont in config.json to a font this computer has. This lists them: fc-list : family" "" ""
+    fp=""
+    case "$t" in "Maple Mono"*) fp=$(get maplemono-nf-unhinted) ;; esac
+    fq=""
+    case "$i" in "Maple Mono"*) fq=$(get maplemono-nf-unhinted) ;; esac
+    [ -z "$t" ] || printf '%s\n' "$fams" | grep -qiF "$t" || out font-text "The font \"$t\" is not installed" "Text falls back to a different font, so sizes and spacing will look wrong." "1. Copy the font files into $root/Data/Static/Fonts\n2. Open a terminal and run: fc-cache -f\n3. Reload Dolphin.\nOr set dolphin_TextFont in config.json to a font this computer has. This lists them: fc-list : family" "${fp:+Installs Programs}" "$fp"
     if [ -n "$t" ] && printf '%s\n' "$fams" | grep -qiF "$i" && ! fc-list ":charset=f233" family 2>/dev/null | grep -qiF "$i"; then
         out font-glyphs "The icon font \"$i\" has no icons in it" "Dolphin draws its icons as letters from a Nerd Font. \"$i\" is installed but is the plain version without those letters, so icons show as empty boxes." "1. Download the Nerd Font version of the font (the name ends in NF or Nerd Font).\n2. Copy it into $root/Data/Static/Fonts\n3. Open a terminal and run: fc-cache -f\n4. Set dolphin_IconFont in config.json to its exact name.\n5. Reload Dolphin." "" ""
     fi
-    [ -z "$t" ] || [ "$i" = "$t" ] || printf '%s\n' "$fams" | grep -qiF "$i" || out font-icon "The icon font \"$i\" is not installed" "Icons set by code will show as empty boxes." "1. Copy a Nerd Font into $root/Data/Static/Fonts\n2. Open a terminal and run: fc-cache -f\n3. Set dolphin_IconFont in config.json to that font's name.\n4. Reload Dolphin." "" ""
+    [ -z "$t" ] || [ "$i" = "$t" ] || printf '%s\n' "$fams" | grep -qiF "$i" || out font-icon "The icon font \"$i\" is not installed" "Icons set by code will show as empty boxes." "1. Copy a Nerd Font into $root/Data/Static/Fonts\n2. Open a terminal and run: fc-cache -f\n3. Set dolphin_IconFont in config.json to that font's name.\n4. Reload Dolphin." "${fq:+Installs Programs}" "$fq"
 fi
 
 if have jq && [ -n "${J:-$B}" ]; then
@@ -533,7 +562,7 @@ fi
 
 if on ai_Show; then
     srv=$(val ai_Server llama-server)
-    have "$srv" || out pkg-llama "llama-server is not installed" "The AI window runs models with llama.cpp. Without it no model can load." "1. Open a terminal.\n2. Run: sudo pacman -S --needed llama-cpp llama-cpp-vulkan\n3. If pacman cannot find them, run: yay -S llama.cpp-vulkan\n4. Press Check again." "" ""
+    have "$srv" || out pkg-llama "llama-server is not installed" "The AI window runs models with llama.cpp. Without it no model can load." "1. Open a terminal.\n2. Run: sudo pacman -S --needed llama-cpp llama-cpp-vulkan\n3. If pacman cannot find them, run: yay -S llama.cpp-vulkan\n4. Press Check again." "Installs Programs" "$(get "$llama")"
     need curl curl "The AI window talks to the model through curl."
     for f in Run.sh Attach.sh Tools.sh; do
         [ -f "$root/Interface/Binded/AI Model/$f" ] || out "gone-$f" "$f is missing" "Interface/Binded/AI Model/AIModel.qml needs $f, which is not in the Dolphin folder." "$restore" "" ""
@@ -555,8 +584,11 @@ if on ai_Show; then
         done
     fi
     if [ "$(val ai_GpuLayers 99)" != 0 ]; then
+        vk=""
+        grep -qs 0x1002 /sys/class/drm/card[0-9]/device/vendor && vk=vulkan-radeon
+        grep -qs 0x8086 /sys/class/drm/card[0-9]/device/vendor && vk="${vk:+$vk }vulkan-intel"
         set -- /usr/share/vulkan/icd.d/*.json /etc/vulkan/icd.d/*.json
-        [ -e "$1" ] || [ -e "$2" ] || out ai-vulkan "AI models cannot use the graphics card" "llama.cpp reaches the graphics card through Vulkan, and no Vulkan driver is installed. Models still run, but only on the processor, which is much slower." "1. Open a terminal.\n2. For AMD graphics run: sudo pacman -S --needed vulkan-radeon\n   For Intel graphics run: sudo pacman -S --needed vulkan-intel\n   For NVIDIA the Vulkan driver comes with nvidia-utils.\n3. Restart the computer." "" ""
+        [ -e "$1" ] || [ -e "$2" ] || out ai-vulkan "AI models cannot use the graphics card" "llama.cpp reaches the graphics card through Vulkan, and no Vulkan driver is installed. Models still run, but only on the processor, which is much slower." "1. Open a terminal.\n2. For AMD graphics run: sudo pacman -S --needed vulkan-radeon\n   For Intel graphics run: sudo pacman -S --needed vulkan-intel\n   For NVIDIA the Vulkan driver comes with nvidia-utils.\n3. Restart the computer." "${vk:+Installs Programs}" "${vk:+$(get "$vk")}"
     fi
 fi
 
@@ -571,7 +603,7 @@ if on manager_Show; then
     w2=${w2%% *}
     [ "$w2" = "$w1" ] && w2=""
     for w in $w1 $w2; do
-        have "$w" || out "fetch-$w" "$w is not installed" "The $w tab in Snoopy Manager shows the output of $w, which is missing, so the tab stays empty." "1. Install $w, or\n2. Open $cfg and set manager_FetchLogo and manager_FetchInfo to commands this computer has, for example:\nfastfetch --structure none --pipe\nfastfetch --logo none --pipe" "" ""
+        have "$w" || out "fetch-$w" "$w is not installed" "The $w tab in Snoopy Manager shows the output of $w, which is missing, so the tab stays empty." "1. Install $w, or\n2. Open $cfg and set manager_FetchLogo and manager_FetchInfo to commands this computer has, for example:\nfastfetch --structure none --pipe\nfastfetch --logo none --pipe" "Installs Programs" "$(get "$w")"
     done
 fi
 
@@ -586,7 +618,7 @@ on media_Show && need cava cava "The Media Player draws its sound bars with cava
 if [ "$(val hyprai_Show false)" = true ]; then
     hs=$(val hyprai_Server llama-server)
     if ! on ai_Show || [ "$hs" != "$(val ai_Server llama-server)" ]; then
-        have "$hs" || out pkg-llama "$hs is not installed" "Panda Hypr AI runs its model with llama.cpp. Without it the panda cannot answer." "1. Open a terminal.\n2. Run: sudo pacman -S --needed llama-cpp llama-cpp-vulkan\n3. If pacman cannot find them, run: yay -S llama.cpp-vulkan\n4. Press Check again." "" ""
+        have "$hs" || out pkg-llama "$hs is not installed" "Panda Hypr AI runs its model with llama.cpp. Without it the panda cannot answer." "1. Open a terminal.\n2. Run: sudo pacman -S --needed llama-cpp llama-cpp-vulkan\n3. If pacman cannot find them, run: yay -S llama.cpp-vulkan\n4. Press Check again." "Installs Programs" "$(get "$llama")"
     fi
     on ai_Show || need curl curl "Panda Hypr AI talks to its model through curl."
     if [ "$(val hyprai_Files true)" = true ]; then
@@ -600,7 +632,7 @@ if [ "$(val hyprai_Show false)" = true ]; then
     case "$hm" in /*) ;; "~/"*) hm="$HOME${hm#"~"}" ;; */*) hm="$root/$hm" ;; *.gguf) hm="$hd/$hm" ;; *) hm="$hd/$hm.gguf" ;; esac
     if [ ! -f "$hm" ]; then
         if [ "${hm##*/}" = "Qwen3.5-4B.gguf" ]; then
-            out hyprai-model "The Panda Hypr AI model is not downloaded" "Panda Hypr AI is turned on, but its model $hm is not there, so the panda cannot answer." "1. Open a terminal.\n2. Run: mkdir -p '$hd' && cd '$hd'\n3. Run: curl -L -o Qwen3.5-4B.gguf https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf\n4. Run: curl -L -o Qwen3.5-4B.mmproj https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/mmproj-Qwen3.5-4B-f16.gguf\n5. Press Check again." "" ""
+            out hyprai-model "The Panda Hypr AI model is not downloaded" "Panda Hypr AI is turned on, but its model $hm is not there, so the panda cannot answer." "1. Open a terminal.\n2. Run: mkdir -p '$hd' && cd '$hd'\n3. Run: curl -L -o Qwen3.5-4B.gguf https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf\n4. Run: curl -L -o Qwen3.5-4B.mmproj https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/mmproj-Qwen3.5-4B-f16.gguf\n5. Press Check again." "Changes System" "term:mkdir -p '$hd' && cd '$hd' && curl -L -o Qwen3.5-4B.gguf https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf && curl -L -o Qwen3.5-4B.mmproj https://huggingface.co/SoAIHQ/Qwen3.5-4B-GGUF/resolve/main/mmproj-Qwen3.5-4B-f16.gguf"
         else
             out hyprai-model "The Panda Hypr AI model is missing" "Panda Hypr AI is set to use $hm, and that file is not there, so the panda cannot answer." "1. Open Snoopy Settings and go to Dolphin Hypr AI.\n2. Pick a model that exists under Model, or put the .gguf file in $hd" "" ""
         fi

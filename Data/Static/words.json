@@ -95,6 +95,8 @@
     "Issues": { "ru": "Проблемы", "sr": "Проблеми", "vi": "Sự cố", "zh": "问题", "ja": "問題", "ko": "문제", "fi": "Ongelmat" },
     "No issues": { "ru": "Проблем нет", "sr": "Нема проблема", "vi": "Không có sự cố", "zh": "没有问题", "ja": "問題はありません", "ko": "문제 없음", "fi": "Ei ongelmia" },
     "Ignore": { "ru": "Игнорировать", "sr": "Занемари", "vi": "Bỏ qua", "zh": "忽略", "ja": "無視", "ko": "무시", "fi": "Ohita" },
+    "Fix all": { "ru": "Исправить все", "sr": "Поправи све", "vi": "Sửa tất cả", "zh": "全部修复", "ja": "すべて修正", "ko": "모두 수정", "fi": "Korjaa kaikki" },
+    "Done. Press Enter to close.": { "ru": "Готово. Нажмите Enter, чтобы закрыть.", "sr": "Готово. Притисните Enter за затварање.", "vi": "Xong. Nhấn Enter để đóng.", "zh": "完成。按 Enter 关闭。", "ja": "完了。Enter で閉じます。", "ko": "완료. Enter를 눌러 닫습니다.", "fi": "Valmis. Sulje painamalla Enter." },
     "Ignore all": { "ru": "Игнорировать все", "sr": "Занемари све", "vi": "Bỏ qua tất cả", "zh": "全部忽略", "ja": "すべて無視", "ko": "모두 무시", "fi": "Ohita kaikki" },
     "Check again": { "ru": "Проверить снова", "sr": "Провери поново", "vi": "Kiểm tra lại", "zh": "重新检查", "ja": "再チェック", "ko": "다시 확인", "fi": "Tarkista uudelleen" },
     "Checking…": { "ru": "Проверка…", "sr": "Провера…", "vi": "Đang kiểm tra…", "zh": "正在检查…", "ja": "チェック中…", "ko": "확인 중…", "fi": "Tarkistetaan…" },

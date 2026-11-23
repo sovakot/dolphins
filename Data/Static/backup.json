@@ -53,6 +53,7 @@
     "updater_Carry" : ["kitty", "rofi", "hypr/hypridle.conf"],
     "updater_SplashTheme" : "custom",
     "updater_SplashOnShutdown" : false,
+    "updater_Terminal" : "kitty -e",
 
     "ai_Show" : true,
     "ai_Title" : "AI Model (Local)",

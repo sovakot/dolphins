@@ -15,7 +15,7 @@ Kit {
         updater_Show: true, updater_Icon: "f233", updater_IconSize: 0.022, updater_TextSize: 13,
         updater_Width: 0.26, updater_Height: 0.5, updater_Color: "#000000", updater_TextColor: "#ffffff", updater_AlertColor: "#ff3b3b", updater_HoverColor: "Active", updater_HoverTime: 1000, updater_Margin: 8,
         updater_FixWidth: 0.32, updater_ChangeColor: "#00ff00",
-        updater_Delay: 3000, updater_Interval: 0, updater_Ignored: [], updater_Carry: ["kitty", "rofi", "hypr/hypridle.conf"], updater_SplashTheme: "custom", updater_SplashOnShutdown: false
+        updater_Delay: 3000, updater_Interval: 0, updater_Ignored: [], updater_Carry: ["kitty", "rofi", "hypr/hypridle.conf"], updater_SplashTheme: "custom", updater_SplashOnShutdown: false, updater_Terminal: "kitty -e"
     })
 
     readonly property string script: decodeURIComponent(Qt.resolvedUrl("Check.sh").toString().replace(/^file:\/\//, ""))
@@ -24,6 +24,8 @@ Kit {
     readonly property var all: (crash === "" ? [] : [{ id: "reload", title: "Dolphin could not reload", detail: crash, steps: "1. Read the file name and line number in the message.\n2. Open that file and fix the line.\n3. Save. Dolphin reloads by itself.", tag: "", cmd: "" }]).concat(Faults.list).concat(issues)
     readonly property var live: all.filter(i => !ignored.includes(i.id))
     readonly property bool alert: live.length > 0
+    readonly property var apart: ["pkg-apps", "pkg-apps-aur", "hyprai-model"]
+    readonly property var ready: live.filter(i => i.cmd !== "" && !apart.includes(i.id))
     readonly property string watch: ["widget_NetworkInterface", "dolphin_TextFont", "dolphin_IconFont", "dolphin_Background", "dolphin_Lockscreen", "dolphin_ThemeBackground",
         "greeter_Avatar", "lockscreen_Pam", "touchpad_Show", "widget_NetworkShow", "widget_BluetoothShow", "widget_BatteryShow", "widget_BrightnessShow",
         "widget_KeyboardShow", "widget_NightShow", "widget_NotificationShow"].map(k => String(cfg?.[k])).join("|")
@@ -70,7 +72,7 @@ Kit {
             soon.restart()
             return
         }
-        act.command = ["sh", "-c", i.cmd]
+        act.command = i.cmd.startsWith("term:") ? ["sh", "-c", String(s("updater_Terminal") || "kitty -e") + " sh -c 'sh -c \"$1\"; printf \"\\n%s \" \"$2\"; read x' sh \"$1\" \"$2\"", "sh", i.cmd.slice(5), word("Done. Press Enter to close.")] : ["sh", "-c", i.cmd]
         act.running = true
     }
     function step(d) {
@@ -80,6 +82,13 @@ Kit {
     }
     function flip(id) { wide = wide === id ? "" : id }
     function mend(i) { if (i) { pick = 0; target = i } }
+    function mendAll() {
+        if (!ready.length) return
+        const q = t => "'" + String(t).replace(/'/g, "'\\''") + "'"
+        mend({ id: "@all", title: word("Fix all") + " (" + ready.length + ")", detail: ready.map(i => "- " + i.title).join("\n"),
+            steps: "Opens a terminal and applies every fix in this list, one after another. It asks for your password once.", tag: "Changes System",
+            cmd: "term:sh " + q(home + "/Install.sh") + " fix " + ignored.map(q).join(" ") })
+    }
     function confirm() { const i = target; target = null; if (i && i.tag !== "") fix(i) }
 
     Connections {
@@ -384,6 +393,15 @@ Kit {
                             x: 10
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 8
+                            Chip {
+                                label: root.word("Fix all")
+                                family: root.font
+                                size: win.px
+                                fg: win.fg
+                                bg: win.bg
+                                live: root.ready.length > 0 && !act.running
+                                onTapped: root.mendAll()
+                            }
                             Chip {
                                 label: root.word("Ignore all")
                                 family: root.font
